@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Image Generator</title>
+  <style>
+    :root { --bg:#0f1115; --card:#141821; --text:#e7e7e7; --muted:#9aa3af; }
+    *{box-sizing:border-box} body{margin:0;font-family:system-ui,Arial;background:var(--bg);color:var(--text)}
+    .wrap{max-width:900px;margin:0 auto;padding:20px}
+    .card{background:var(--card);border-radius:18px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+    h1{font-size:22px;margin:0 0 12px}
+    .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    input,select,button,textarea{
+      width:100%;padding:12px 14px;border-radius:12px;border:1px solid #2a2f3a;background:#0c0f14;color:var(--text)
+    }
+    button{background:#3b82f6;border:none;font-weight:700}
+    button:disabled{opacity:.6}
+    .pill{display:inline-flex;gap:6px;align-items:center;background:#0c0f14;border:1px solid #2a2f3a;padding:8px 10px;border-radius:999px;color:var(--muted)}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px;margin-top:12px}
+    .img-wrap{position:relative;overflow:hidden;border-radius:14px;border:1px solid #2a2f3a}
+    .img-wrap img{width:100%;display:block}
+    .progress{margin-top:10px;font-size:13px;color:var(--muted)}
+    .footer{opacity:.7;font-size:12px;margin-top:12px;text-align:center}
+    @media (min-width:720px){
+      .row-2{display:grid;grid-template-columns:2fr 1fr;gap:10px}
+      .grid{grid-template-columns:1fr 1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>AI Image Generator</h1>
+
+      <div class="row-2">
+        <textarea id="prompt" rows="3" placeholder="Describe your image (e.g., 'teen anime hero under cherry blossoms, cinematic lighting')"></textarea>
+
+        <div class="grid">
+          <select id="style">
+            <option value="anime">Anime</option>
+            <option value="realistic">Realistic</option>
+            <option value="fantasy">Fantasy</option>
+            <option value="cyberpunk">Cyberpunk</option>
+            <option value="pixel">Pixel Art</option>
+            <option value="watercolor">Watercolor</option>
+          </select>
+
+          <select id="size">
+            <option value="square">Square (1024×1024)</option>
+            <option value="portrait">Portrait (832×1216)</option>
+            <option value="landscape">Landscape (1216×832)</option>
+          </select>
+
+          <input id="negative" placeholder="(Optional) Negative prompt: blur, low quality, nsfw" />
+          <input id="seed" inputmode="numeric" placeholder="(Optional) Seed for repeatability" />
+        </div>
+      </div>
+
+      <div class="row">
+        <button id="btn">Generate</button>
+        <span class="pill">Model: FLUX-Schnell (Replicate)</span>
+      </div>
+
+      <div id="status" class="progress"></div>
+
+      <div id="result" class="grid" style="margin-top:10px;"></div>
+
+      <div class="footer">
+        Tip: keep prompts precise. Add lens/lighting like “volumetric light, 35mm, depth of field”.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const BACKEND = "https://YOUR-BACKEND.onrender.com"; // ← replace after deploy
+
+    const styleHints = {
+      anime: "highly detailed anime, vibrant cel shading, clean lineart, studio anime, key visual",
+      realistic: "photorealistic, ultra-detailed, 50mm lens, natural skin, realistic textures",
+      fantasy: "high fantasy, ethereal lighting, ornate details, majestic, storybook illustration",
+      cyberpunk: "neon lights, rain-soaked streets, dystopian, reflective surfaces, futuristic UI",
+      pixel: "8-bit pixel art, limited color palette, retro game sprite style",
+      watercolor: "soft watercolor wash, paper texture, loose strokes, pastel colors"
+    };
+
+    function mapSize(size){
+      if(size === "portrait") return {width:832, height:1216};
+      if(size === "landscape") return {width:1216, height:832};
+      return {width:1024, height:1024};
+    }
+
+    function download(url){
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = "ai-image.png";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    document.getElementById("btn").addEventListener("click", async () => {
+      const btn = document.getElementById("btn");
+      const status = document.getElementById("status");
+      const out = document.getElementById("result");
+
+      const base = document.getElementById("prompt").value.trim();
+      const style = document.getElementById("style").value;
+      const negative = document.getElementById("negative").value.trim();
+      const seed = document.getElementById("seed").value.trim();
+      const size = mapSize(document.getElementById("size").value);
+
+      if(!base){ alert("Please enter a prompt."); return; }
+
+      const fullPrompt = `${base}. Style: ${styleHints[style]}`;
+
+      btn.disabled = true; status.textContent = "Generating…";
+      try {
+        const res = await fetch(`${BACKEND}/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: fullPrompt,
+            negative_prompt: negative || undefined,
+            width: size.width,
+            height: size.height,
+            seed: seed ? Number(seed) : undefined
+          })
+        });
+
+        if(!res.ok){
+          const txt = await res.text();
+          throw new Error(txt || `HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const url = data?.image;
+
+        if(!url) throw new Error("No image URL received.");
+
+        const card = document.createElement("div");
+        card.className = "img-wrap";
+        card.innerHTML = `
+          <img src="${url}" alt="generated" />
+          <div style="display:flex; gap:8px; padding:10px; background:rgba(0,0,0,.35); position:absolute; bottom:8px; right:8px; border-radius:999px;">
+            <button onclick="window.open('${url}','_blank')" class="pill">Open</button>
+            <button onclick="(${download.toString()})('${url}')" class="pill">Download</button>
+          </div>
+        `;
+        out.prepend(card);
+        status.textContent = "Done ✅";
+      } catch (e){
+        console.error(e);
+        status.textContent = "Error: " + (e?.message || e);
+        alert("Generation failed. Check backend URL and logs.");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
